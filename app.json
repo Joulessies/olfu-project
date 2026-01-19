@@ -45,7 +45,13 @@
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/olfu-logo.png"
+      "favicon": "./assets/images/olfu-logo.png",
+      "bundler": "metro",
+      "name": "OLFU Commute Smart",
+      "shortName": "OLFU Commute",
+      "description": "Smart commuting app for OLFU students with safety features, navigation, and friend tracking",
+      "themeColor": "#2E7D32",
+      "backgroundColor": "#ffffff"
     },
     "plugins": [
       "expo-router",
