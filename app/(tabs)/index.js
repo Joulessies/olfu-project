@@ -9,13 +9,15 @@
  * - Safety status indicator
  */
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect } from "react";
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  Alert,
+  Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -86,6 +88,13 @@ export default function HomeScreen() {
       icon: "calendar",
       color: Colors.warning,
       route: null,
+      action: () => {
+        if (Platform.OS === "web") {
+          window.alert("Class Schedule\n\nThis feature is coming soon! You'll be able to view your class schedule here.");
+        } else {
+          Alert.alert("Class Schedule", "This feature is coming soon! You'll be able to view your class schedule here.");
+        }
+      },
     },
     {
       id: "alerts",
@@ -94,6 +103,13 @@ export default function HomeScreen() {
       icon: "notifications",
       color: Colors.accent,
       route: null,
+      action: () => {
+        if (Platform.OS === "web") {
+          window.alert("Safety Alerts\n\nNo active alerts at this time.\n\nYou'll be notified of any campus safety updates here.");
+        } else {
+          Alert.alert("Safety Alerts", "No active alerts at this time.\n\nYou'll be notified of any campus safety updates here.");
+        }
+      },
     },
   ];
 
@@ -101,6 +117,8 @@ export default function HomeScreen() {
     logInteraction("tap", `quick_action_${action.id}`);
     if (action.route) {
       router.push(action.route);
+    } else if (action.action) {
+      action.action();
     }
   };
 
