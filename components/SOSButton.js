@@ -7,6 +7,7 @@
  * - 3-second long-press activation to prevent accidental triggers
  * - Haptic feedback on activation
  * - Visual countdown indicator during long-press
+ * - Sends alert to database and notifies emergency contacts
  */
 
 import React, { useState, useRef, useEffect } from "react";
@@ -21,19 +22,24 @@ import {
   Platform,
 } from "react-native";
 import * as Haptics from "expo-haptics";
+import * as Location from "expo-location";
 import { Ionicons } from "@expo/vector-icons";
 import Colors from "../constants/colors";
 import { SOS_LONG_PRESS_DURATION } from "../constants/config";
 import { logTaskCompletion, logInteraction } from "../utils/usabilityLogger";
+import { sendSOSAlert, getEmergencyContacts } from "../config/supabase";
 
 const SOSButton = ({
   onActivate,
+  userId = null,
+  userLocation = null,
   size = 120,
   disabled = false,
   showInstructions = true,
 }) => {
   const [isPressing, setIsPressing] = useState(false);
   const [isActivated, setIsActivated] = useState(false);
+  const [isSending, setIsSending] = useState(false);
   const progressAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -132,6 +138,7 @@ const SOSButton = ({
   const triggerSOS = async () => {
     setIsActivated(true);
     setIsPressing(false);
+    setIsSending(true);
 
     // Vibration pattern: SOS in Morse code (... --- ...)
     const sosPattern = [
@@ -161,41 +168,112 @@ const SOSButton = ({
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     }
 
-    // Log emergency alert
-    console.log("=================================");
-    console.log("🚨 EMERGENCY ALERT SENT 🚨");
-    console.log("Timestamp:", new Date().toISOString());
-    console.log("Location: [User location would be sent here]");
-    console.log("=================================");
+    try {
+      // Get current location if not provided
+      let location = userLocation;
+      if (!location) {
+        try {
+          const { status } = await Location.requestForegroundPermissionsAsync();
+          if (status === "granted") {
+            const currentLocation = await Location.getCurrentPositionAsync({
+              accuracy: Location.Accuracy.High,
+            });
+            location = {
+              latitude: currentLocation.coords.latitude,
+              longitude: currentLocation.coords.longitude,
+            };
+          }
+        } catch (locError) {
+          console.log("Could not get location for SOS:", locError);
+          // Use default location (OLFU campus) as fallback
+          location = { latitude: 14.7033, longitude: 121.0633 };
+        }
+      }
 
-    // Log task completion
-    logTaskCompletion("SOS_Activation", SOS_LONG_PRESS_DURATION, true, {
-      activationType: "long_press",
-    });
+      // Log emergency alert
+      console.log("=================================");
+      console.log("🚨 EMERGENCY ALERT SENT 🚨");
+      console.log("Timestamp:", new Date().toISOString());
+      console.log("Location:", location);
+      console.log("User ID:", userId);
+      console.log("=================================");
 
-    // Call the onActivate callback if provided
-    if (onActivate) {
-      onActivate();
-    }
+      // Send SOS alert to database
+      let alertResult = { success: false };
+      let emergencyContacts = [];
 
-    // Show confirmation alert
-    Alert.alert(
-      "🚨 Emergency Alert Sent",
-      "Your emergency contacts and local authorities have been notified of your location.",
-      [
-        {
-          text: "OK",
-          onPress: () => {
-            setIsActivated(false);
-            progressAnim.setValue(0);
+      if (userId) {
+        alertResult = await sendSOSAlert(userId, location, "Emergency SOS Alert!");
+        emergencyContacts = await getEmergencyContacts(userId);
+        console.log("SOS Alert Result:", alertResult);
+        console.log("Emergency Contacts:", emergencyContacts.length, "contacts");
+      }
+
+      // Log task completion
+      logTaskCompletion("SOS_Activation", SOS_LONG_PRESS_DURATION, true, {
+        activationType: "long_press",
+        alertSent: alertResult.success,
+        contactsNotified: emergencyContacts.length,
+      });
+
+      // Call the onActivate callback if provided
+      if (onActivate) {
+        onActivate({
+          success: alertResult.success,
+          alertId: alertResult.alertId,
+          location,
+          contactsCount: emergencyContacts.length,
+        });
+      }
+
+      setIsSending(false);
+
+      // Build message with emergency contacts info
+      let alertMessage = "Your emergency alert has been recorded.";
+      if (emergencyContacts.length > 0) {
+        const contactNames = emergencyContacts.slice(0, 3).map(c => c.name).join(", ");
+        alertMessage = `Your emergency alert has been recorded.\n\nEmergency contacts (${emergencyContacts.length}): ${contactNames}${emergencyContacts.length > 3 ? "..." : ""}\n\nPlease contact them directly if you need immediate help.`;
+      } else {
+        alertMessage = "Your emergency alert has been recorded.\n\n⚠️ No emergency contacts set up. Go to Profile > Emergency Contacts to add contacts.";
+      }
+
+      // Show confirmation alert
+      Alert.alert(
+        "🚨 Emergency Alert Sent",
+        alertMessage,
+        [
+          {
+            text: "OK",
+            onPress: () => {
+              setIsActivated(false);
+              progressAnim.setValue(0);
+            },
           },
-        },
-      ]
-    );
+        ]
+      );
+    } catch (error) {
+      console.error("Error sending SOS alert:", error);
+      setIsSending(false);
+
+      Alert.alert(
+        "⚠️ Alert Error",
+        "There was an issue sending the alert, but your location has been logged. Please call emergency services directly if you need help.",
+        [
+          {
+            text: "OK",
+            onPress: () => {
+              setIsActivated(false);
+              progressAnim.setValue(0);
+            },
+          },
+        ]
+      );
+    }
 
     // Reset after 5 seconds if alert is dismissed
     setTimeout(() => {
       setIsActivated(false);
+      setIsSending(false);
       progressAnim.setValue(0);
     }, 5000);
   };

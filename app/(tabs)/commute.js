@@ -6,7 +6,7 @@
  * Uses FREE OpenStreetMap for navigation
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   View,
   Text,
@@ -37,6 +37,67 @@ import {
   logInteraction,
   logTaskCompletion,
 } from "../../utils/usabilityLogger";
+
+// ============================================
+// FARE CALCULATION UTILITIES
+// ============================================
+
+/**
+ * Calculate distance between two coordinates using Haversine formula
+ * @returns distance in kilometers
+ */
+const calculateDistance = (lat1, lon1, lat2, lon2) => {
+  const R = 6371; // Earth's radius in km
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+    Math.cos((lat2 * Math.PI) / 180) *
+    Math.sin(dLon / 2) *
+    Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+};
+
+/**
+ * Calculate fare based on distance and vehicle type
+ * Uses standard Philippine public transport rates (2024)
+ */
+const calculateFare = (distanceKm, vehicleType) => {
+  // Base fares and per-km rates for Philippine transport
+  const fareRates = {
+    jeepney: { base: 13, perKm: 1.80, minFare: 13 },
+    bus: { base: 13, perKm: 2.20, minFare: 13 },
+    tricycle: { base: 40, perKm: 10, minFare: 40 }, // Special trip rate
+    van: { base: 15, perKm: 1.50, minFare: 15 },
+    car: { base: 45, perKm: 13, minFare: 45 }, // Grab-like rates
+  };
+
+  const rate = fareRates[vehicleType] || fareRates.jeepney;
+  const calculatedFare = rate.base + (distanceKm * rate.perKm);
+  return Math.max(Math.round(calculatedFare), rate.minFare);
+};
+
+/**
+ * Estimate travel duration based on distance and vehicle type
+ * @returns duration in minutes
+ */
+const estimateDuration = (distanceKm, vehicleType) => {
+  // Average speeds in km/h for different transport types
+  const avgSpeeds = {
+    jeepney: 15, // Slow due to stops
+    bus: 20,
+    tricycle: 25,
+    van: 25,
+    car: 30,
+  };
+
+  const speed = avgSpeeds[vehicleType] || 20;
+  const hours = distanceKm / speed;
+  return Math.max(Math.round(hours * 60), 5); // Minimum 5 minutes
+};
+
 
 export default function CommuteScreen() {
   const [selectedRoute, setSelectedRoute] = useState(null);
@@ -111,99 +172,118 @@ export default function CommuteScreen() {
     });
   };
 
-  // Legit Route data for Quezon City to OLFU
-  const routes = [
-    {
-      id: "1",
-      name: "Jeepney via Commonwealth",
-      vehicleType: "jeepney",
-      fare: 15,
-      duration: 30,
-      distance: "5.2 km",
-      description:
-        "Most common route. Take the Fairview-bound jeepney along Commonwealth Avenue. Affordable and frequent trips.",
-      stops: "Commonwealth → Litex → Hilltop",
-      steps: [
-        "Walk to the nearest jeepney stop on Commonwealth Ave.",
-        "Look for jeepneys with 'Fairview' or 'Hilltop' sign",
-        "Ride the jeepney going to Fairview direction",
-        "Tell the driver to drop you at OLFU Hilltop",
-        "Fare: ₱15 (may vary slightly)",
-      ],
-    },
-    {
-      id: "2",
-      name: "Bus via EDSA + Jeep",
-      vehicleType: "bus",
-      fare: 25,
-      duration: 45,
-      distance: "8.1 km",
-      description:
-        "Take a bus along EDSA to SM Fairview then transfer to jeepney going to OLFU. Air-conditioned option.",
-      stops: "EDSA → SM Fairview → OLFU",
-      steps: [
-        "Go to the nearest EDSA bus stop",
-        "Ride a bus going to SM Fairview/Fairview Terminal",
-        "Alight at SM Fairview Bus Terminal",
-        "Transfer to jeepney going to OLFU Hilltop",
-        "Bus Fare: ₱15-20 | Jeep Fare: ₱10",
-      ],
-    },
-    {
-      id: "3",
-      name: "Tricycle Direct",
-      vehicleType: "tricycle",
-      fare: 50,
-      duration: 10,
-      distance: "2.1 km",
-      description:
-        "Direct and fastest option if you're nearby. Negotiate fare with the driver. Best for short distances.",
-      stops: "Direct to OLFU Gate",
-      steps: [
-        "Hail a tricycle from your location",
-        "Tell the driver: 'OLFU Hilltop, please'",
-        "Negotiate the fare (usually ₱50-80)",
-        "Direct ride to OLFU main gate",
-        "Tip: Agree on fare before riding",
-      ],
-    },
-    {
-      id: "4",
-      name: "UV Express via Mindanao Ave",
-      vehicleType: "van",
-      fare: 20,
-      duration: 25,
-      distance: "6.5 km",
-      description:
-        "UV Express/FX vans along Mindanao Avenue. Faster than jeepney, air-conditioned.",
-      stops: "Trinoma → Mindanao Ave → Hilltop",
-      steps: [
-        "Go to Trinoma or nearest UV terminal",
-        "Look for UV Express going to Fairview",
-        "Ride the van along Mindanao Avenue route",
-        "Alight at Hilltop/OLFU area",
-        "Walk 3-5 minutes to OLFU gate",
-      ],
-    },
-    {
-      id: "5",
-      name: "Grab/Taxi",
-      vehicleType: "car",
-      fare: 150,
-      duration: 15,
-      distance: "Varies",
-      description:
-        "Most convenient door-to-door option. Book via Grab app. Price varies based on traffic and distance.",
-      stops: "Door to Door Service",
-      steps: [
-        "Open Grab app on your phone",
-        "Set pickup: Your current location",
-        "Set destination: OLFU Quezon City, Hilltop",
-        "Choose GrabCar or GrabShare",
-        "Confirm booking and wait for driver",
-      ],
-    },
-  ];
+  // Calculate distance between origin and destination
+  const distanceKm = useMemo(() => {
+    const origin = originLocation || userLocation;
+    const dest = destinationLocation;
+
+    if (!origin || !dest) return 5; // Default 5km if no locations
+
+    return calculateDistance(
+      origin.latitude,
+      origin.longitude,
+      dest.latitude,
+      dest.longitude
+    );
+  }, [originLocation, userLocation, destinationLocation]);
+
+  // Dynamic route data with fares calculated based on actual distance
+  const routes = useMemo(() => {
+    const distanceText = `${distanceKm.toFixed(1)} km`;
+
+    return [
+      {
+        id: "1",
+        name: "Jeepney via Commonwealth",
+        vehicleType: "jeepney",
+        fare: calculateFare(distanceKm, "jeepney"),
+        duration: estimateDuration(distanceKm, "jeepney"),
+        distance: distanceText,
+        description:
+          "Most common route. Take the Fairview-bound jeepney along Commonwealth Avenue. Affordable and frequent trips.",
+        stops: "Commonwealth → Litex → Hilltop",
+        steps: [
+          "Walk to the nearest jeepney stop on Commonwealth Ave.",
+          "Look for jeepneys with 'Fairview' or 'Hilltop' sign",
+          "Ride the jeepney going to Fairview direction",
+          "Tell the driver to drop you at OLFU Hilltop",
+          `Estimated Fare: ₱${calculateFare(distanceKm, "jeepney")} (distance-based)`,
+        ],
+      },
+      {
+        id: "2",
+        name: "Bus via EDSA + Jeep",
+        vehicleType: "bus",
+        fare: calculateFare(distanceKm, "bus"),
+        duration: estimateDuration(distanceKm, "bus"),
+        distance: distanceText,
+        description:
+          "Take a bus along EDSA to SM Fairview then transfer to jeepney going to OLFU. Air-conditioned option.",
+        stops: "EDSA → SM Fairview → OLFU",
+        steps: [
+          "Go to the nearest EDSA bus stop",
+          "Ride a bus going to SM Fairview/Fairview Terminal",
+          "Alight at SM Fairview Bus Terminal",
+          "Transfer to jeepney going to OLFU Hilltop",
+          `Estimated Fare: ₱${calculateFare(distanceKm, "bus")} (distance-based)`,
+        ],
+      },
+      {
+        id: "3",
+        name: "Tricycle Direct",
+        vehicleType: "tricycle",
+        fare: calculateFare(distanceKm, "tricycle"),
+        duration: estimateDuration(distanceKm, "tricycle"),
+        distance: distanceText,
+        description:
+          "Direct and fastest option if you're nearby. Negotiate fare with the driver. Best for short distances.",
+        stops: "Direct to OLFU Gate",
+        steps: [
+          "Hail a tricycle from your location",
+          "Tell the driver: 'OLFU Hilltop, please'",
+          `Negotiate fare (~₱${calculateFare(distanceKm, "tricycle")})`,
+          "Direct ride to OLFU main gate",
+          "Tip: Agree on fare before riding",
+        ],
+      },
+      {
+        id: "4",
+        name: "UV Express via Mindanao Ave",
+        vehicleType: "van",
+        fare: calculateFare(distanceKm, "van"),
+        duration: estimateDuration(distanceKm, "van"),
+        distance: distanceText,
+        description:
+          "UV Express/FX vans along Mindanao Avenue. Faster than jeepney, air-conditioned.",
+        stops: "Trinoma → Mindanao Ave → Hilltop",
+        steps: [
+          "Go to Trinoma or nearest UV terminal",
+          "Look for UV Express going to Fairview",
+          "Ride the van along Mindanao Avenue route",
+          "Alight at Hilltop/OLFU area",
+          `Estimated Fare: ₱${calculateFare(distanceKm, "van")} (distance-based)`,
+        ],
+      },
+      {
+        id: "5",
+        name: "Grab/Taxi",
+        vehicleType: "car",
+        fare: calculateFare(distanceKm, "car"),
+        duration: estimateDuration(distanceKm, "car"),
+        distance: distanceText,
+        description:
+          "Most convenient door-to-door option. Book via Grab app. Price varies based on traffic and distance.",
+        stops: "Door to Door Service",
+        steps: [
+          "Open Grab app on your phone",
+          "Set pickup: Your current location",
+          "Set destination: OLFU Quezon City, Hilltop",
+          "Choose GrabCar or GrabShare",
+          `Estimated Fare: ₱${calculateFare(distanceKm, "car")} (distance-based)`,
+        ],
+      },
+    ];
+  }, [distanceKm]);
 
   // Get vehicle icon based on type
   const getVehicleIcon = (vehicleType) => {

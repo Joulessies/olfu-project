@@ -17,6 +17,8 @@
         "NSLocationAlwaysUsageDescription": "OLFU Commute Smart needs background location access to keep you safe with geofence alerts.",
         "UIBackgroundModes": [
           "location",
+          "fetch",
+          "location",
           "fetch"
         ]
       }
@@ -30,6 +32,12 @@
       "predictiveBackGestureEnabled": false,
       "package": "com.olfu.commutesmart",
       "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "VIBRATE",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
         "ACCESS_BACKGROUND_LOCATION",
@@ -84,6 +92,12 @@
         "projectId": "b1097335-48f0-4e55-91ce-f108d6b7a844"
       }
     },
-    "owner": "joulessies"
+    "owner": "joulessies",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/b1097335-48f0-4e55-91ce-f108d6b7a844"
+    }
   }
 }

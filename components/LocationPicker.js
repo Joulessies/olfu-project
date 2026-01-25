@@ -118,13 +118,13 @@ const LocationPicker = ({
       // Nominatim API with Philippines country code
       const response = await fetch(
         `https://nominatim.openstreetmap.org/search?` +
-          `q=${encodeURIComponent(query)}&` +
-          `format=json&` +
-          `addressdetails=1&` +
-          `countrycodes=ph&` +
-          `viewbox=${PH_BOUNDS.west},${PH_BOUNDS.north},${PH_BOUNDS.east},${PH_BOUNDS.south}&` +
-          `bounded=1&` +
-          `limit=10`,
+        `q=${encodeURIComponent(query)}&` +
+        `format=json&` +
+        `addressdetails=1&` +
+        `countrycodes=ph&` +
+        `viewbox=${PH_BOUNDS.west},${PH_BOUNDS.north},${PH_BOUNDS.east},${PH_BOUNDS.south}&` +
+        `bounded=1&` +
+        `limit=10`,
         {
           headers: {
             "User-Agent": "OLFU-QC-CommuteApp/1.0",
@@ -133,15 +133,22 @@ const LocationPicker = ({
       );
       const data = await response.json();
 
-      const results = data.map((item) => ({
-        id: item.place_id,
-        name: item.display_name.split(",")[0],
-        address: item.display_name.split(",").slice(1, 3).join(","),
-        fullAddress: item.display_name,
-        latitude: parseFloat(item.lat),
-        longitude: parseFloat(item.lon),
-        type: item.type,
-      }));
+      const results = data.map((item) => {
+        // Parse address components for fuller display
+        const parts = item.display_name.split(",").map(p => p.trim());
+        const name = parts[0];
+        // Build fuller address: take up to 4 components for context (street, barangay, city, region)
+        const addressParts = parts.slice(1, 5).filter(Boolean);
+        return {
+          id: item.place_id,
+          name: name,
+          address: addressParts.join(", "),
+          fullAddress: item.display_name,
+          latitude: parseFloat(item.lat),
+          longitude: parseFloat(item.lon),
+          type: item.type,
+        };
+      });
 
       setSearchResults(results);
     } catch (error) {
@@ -197,9 +204,8 @@ const LocationPicker = ({
   const updateMapMarker = (location) => {
     if (webViewRef.current) {
       webViewRef.current.injectJavaScript(`
-        updateSelectedLocation(${location.latitude}, ${location.longitude}, "${
-        location.name || "Selected"
-      }");
+        updateSelectedLocation(${location.latitude}, ${location.longitude}, "${location.name || "Selected"
+        }");
         true;
       `);
     }
@@ -238,7 +244,7 @@ const LocationPicker = ({
         try {
           const response = await fetch(
             `https://nominatim.openstreetmap.org/reverse?` +
-              `lat=${lat}&lon=${lng}&format=json`,
+            `lat=${lat}&lon=${lng}&format=json`,
             {
               headers: {
                 "User-Agent": "OLFU-QC-CommuteApp/1.0",
@@ -247,13 +253,18 @@ const LocationPicker = ({
           );
           const result = await response.json();
 
+          // Parse address for fuller display
+          const parts = result.display_name?.split(",").map(p => p.trim()) || [];
+          const name = parts[0] || "Selected Location";
+          const addressParts = parts.slice(1, 5).filter(Boolean);
+
           const location = {
             latitude: lat,
             longitude: lng,
-            name: result.display_name?.split(",")[0] || "Selected Location",
-            address:
-              result.display_name?.split(",").slice(1, 3).join(",") ||
-              `${lat.toFixed(4)}°N, ${lng.toFixed(4)}°E`,
+            name: name,
+            address: addressParts.length > 0
+              ? addressParts.join(", ")
+              : `${lat.toFixed(4)}°N, ${lng.toFixed(4)}°E`,
           };
 
           setSelectedLocation(location);
@@ -363,13 +374,11 @@ const LocationPicker = ({
             }
           });
 
-          ${
-            selectedLocation
-              ? `updateSelectedLocation(${selectedLocation.latitude}, ${
-                  selectedLocation.longitude
-                }, "${selectedLocation.name || "Selected"}");`
-              : ""
-          }
+          ${selectedLocation
+        ? `updateSelectedLocation(${selectedLocation.latitude}, ${selectedLocation.longitude
+        }, "${selectedLocation.name || "Selected"}");`
+        : ""
+      }
         </script>
       </body>
       </html>

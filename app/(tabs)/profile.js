@@ -23,9 +23,11 @@ import {
   Modal,
   Share,
   Platform,
+  Image,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
+import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useUser, useAuth } from "@clerk/clerk-expo";
@@ -77,7 +79,7 @@ export default function ProfileScreen() {
   const [notifications, setNotifications] = useState(true);
   const [geofenceAlerts, setGeofenceAlerts] = useState(true);
   const [isSigningOut, setIsSigningOut] = useState(false);
-  
+
   // Tracking code states
   const [trackingCode, setTrackingCode] = useState(null);
   const [loadingCode, setLoadingCode] = useState(false);
@@ -85,13 +87,13 @@ export default function ProfileScreen() {
   const [friendCode, setFriendCode] = useState("");
   const [addingFriend, setAddingFriend] = useState(false);
   const [friendsCount, setFriendsCount] = useState(0);
-  
+
   // Edit Profile Modal states
   const [showEditProfileModal, setShowEditProfileModal] = useState(false);
   const [editFirstName, setEditFirstName] = useState("");
   const [editLastName, setEditLastName] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
-  
+
   // Emergency Contacts Modal states
   const [showEmergencyContactsModal, setShowEmergencyContactsModal] = useState(false);
   const [emergencyContacts, setEmergencyContacts] = useState([]);
@@ -101,19 +103,27 @@ export default function ProfileScreen() {
   const [newContactPhone, setNewContactPhone] = useState("");
   const [newContactRelation, setNewContactRelation] = useState("");
   const [addingContact, setAddingContact] = useState(false);
-  
+
   // Friends List Modal states
   const [showFriendsListModal, setShowFriendsListModal] = useState(false);
   const [friendsList, setFriendsList] = useState([]);
   const [loadingFriends, setLoadingFriends] = useState(false);
-  
+
   // Theme Modal states
   const [showThemeModal, setShowThemeModal] = useState(false);
   const [selectedTheme, setSelectedTheme] = useState("system");
-  
+
   // Language Modal states
   const [showLanguageModal, setShowLanguageModal] = useState(false);
   const [selectedLanguage, setSelectedLanguage] = useState("en");
+
+  // Profile Photo states
+  const [profilePhotoUrl, setProfilePhotoUrl] = useState(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+
+  // Activity Log Modal states
+  const [showActivityLogModal, setShowActivityLogModal] = useState(false);
+  const [activityLogs, setActivityLogs] = useState([]);
 
   useEffect(() => {
     logScreenView("ProfileScreen");
@@ -128,9 +138,122 @@ export default function ProfileScreen() {
       // Initialize edit profile fields
       setEditFirstName(user.firstName || "");
       setEditLastName(user.lastName || "");
+      // Load profile photo from Clerk
+      if (user.imageUrl) {
+        setProfilePhotoUrl(user.imageUrl);
+      }
     }
   }, [user?.id]);
-  
+
+  // Handle profile photo change - Web-compatible version
+  const handleChangeProfilePhoto = async () => {
+    if (!user) {
+      showAlert("Sign In Required", "Please sign in to change your profile photo.");
+      return;
+    }
+
+    // Web-specific handling using native file input
+    if (Platform.OS === "web") {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = "image/*";
+      input.onchange = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        setUploadingPhoto(true);
+        try {
+          // Upload directly to Clerk (file is already a Blob)
+          await user.setProfileImage({ file });
+
+          // Create local preview URL
+          const previewUrl = URL.createObjectURL(file);
+          setProfilePhotoUrl(previewUrl);
+
+          // Sync updated photo to Supabase
+          await syncClerkUserToSupabase(user);
+
+          showAlert("Success", "Profile photo updated successfully!");
+        } catch (uploadError) {
+          console.error("Error uploading photo:", uploadError);
+          showAlert("Upload Failed", "Could not upload the photo. Please try again.");
+        } finally {
+          setUploadingPhoto(false);
+        }
+      };
+      input.click();
+      return;
+    }
+
+    // Mobile handling using expo-image-picker
+    try {
+      // Request permission
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+      if (status !== "granted") {
+        showAlert("Permission Required", "Please allow access to your photo library to change your profile picture.");
+        return;
+      }
+
+      // Launch image picker
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets?.[0]) {
+        const imageUri = result.assets[0].uri;
+        setUploadingPhoto(true);
+
+        try {
+          // Convert image to blob for Clerk upload
+          const response = await fetch(imageUri);
+          const blob = await response.blob();
+
+          // Upload to Clerk
+          await user.setProfileImage({ file: blob });
+
+          // Update local state
+          setProfilePhotoUrl(imageUri);
+
+          // Sync updated photo to Supabase
+          await syncClerkUserToSupabase(user);
+
+          showAlert("Success", "Profile photo updated successfully!");
+        } catch (uploadError) {
+          console.error("Error uploading photo:", uploadError);
+          showAlert("Upload Failed", "Could not upload the photo. Please try again.");
+        } finally {
+          setUploadingPhoto(false);
+        }
+      }
+    } catch (error) {
+      console.error("Image picker error:", error);
+      showAlert("Error", "Could not open the photo picker. Please try again.");
+    }
+  };
+
+  // Add activity log entry
+  const addActivityLog = (type, message, details = null) => {
+    const newLog = {
+      id: Date.now().toString(),
+      type, // 'sos', 'location', 'profile', 'friend', 'system'
+      message,
+      details,
+      timestamp: new Date().toISOString(),
+    };
+    setActivityLogs(prev => [newLog, ...prev].slice(0, 50)); // Keep last 50 logs
+    console.log(`[${type.toUpperCase()}]`, message, details || "");
+  };
+
+  // Clear all activity logs
+  const clearActivityLogs = () => {
+    setActivityLogs([]);
+    showAlert("Logs Cleared", "All activity logs have been cleared.");
+  };
+
   // Load saved preferences from AsyncStorage
   const loadSavedPreferences = async () => {
     try {
@@ -139,7 +262,7 @@ export default function ProfileScreen() {
       const savedLocationSharing = await AsyncStorage.getItem("@olfu_location_sharing");
       const savedNotifications = await AsyncStorage.getItem("@olfu_notifications");
       const savedGeofence = await AsyncStorage.getItem("@olfu_geofence");
-      
+
       if (savedTheme) setSelectedTheme(savedTheme);
       if (savedLanguage) setSelectedLanguage(savedLanguage);
       if (savedLocationSharing !== null) setLocationSharing(savedLocationSharing === "true");
@@ -174,7 +297,7 @@ export default function ProfileScreen() {
       showAlert("Error", "Failed to load friends count. Please refresh the page.");
     }
   };
-  
+
   // Load full friends list
   const loadFriendsList = async () => {
     if (!user?.id) return;
@@ -188,7 +311,7 @@ export default function ProfileScreen() {
       setLoadingFriends(false);
     }
   };
-  
+
   // Load emergency contacts
   const loadEmergencyContacts = async () => {
     if (!user?.id) return;
@@ -202,7 +325,7 @@ export default function ProfileScreen() {
       setLoadingContacts(false);
     }
   };
-  
+
   // Save profile changes
   const handleSaveProfile = async () => {
     if (!user) return;
@@ -220,7 +343,7 @@ export default function ProfileScreen() {
       setSavingProfile(false);
     }
   };
-  
+
   // Add emergency contact
   const handleAddEmergencyContact = async () => {
     if (!newContactName.trim() || !newContactPhone.trim()) {
@@ -250,7 +373,7 @@ export default function ProfileScreen() {
       setAddingContact(false);
     }
   };
-  
+
   // Delete emergency contact
   const handleDeleteContact = async (contactId) => {
     showAlert(
@@ -275,7 +398,7 @@ export default function ProfileScreen() {
       ]
     );
   };
-  
+
   // Remove friend
   const handleRemoveFriend = async (friendId, friendName) => {
     showAlert(
@@ -301,7 +424,7 @@ export default function ProfileScreen() {
       ]
     );
   };
-  
+
   // Save theme preference
   const handleThemeChange = async (theme) => {
     setSelectedTheme(theme);
@@ -309,7 +432,7 @@ export default function ProfileScreen() {
     setShowThemeModal(false);
     showAlert("Theme Updated", `Theme set to: ${theme === "system" ? "System Default" : theme === "light" ? "Light Mode" : "Dark Mode"}`);
   };
-  
+
   // Save language preference
   const handleLanguageChange = async (lang) => {
     setSelectedLanguage(lang);
@@ -502,6 +625,10 @@ export default function ProfileScreen() {
         );
         break;
 
+      case "activity_log":
+        setShowActivityLogModal(true);
+        break;
+
       case "feedback":
         showAlert(
           "Send Feedback",
@@ -661,6 +788,13 @@ export default function ProfileScreen() {
           type: "link",
         },
         {
+          id: "activity_log",
+          icon: "list",
+          title: "Activity Log",
+          subtitle: `${activityLogs.length} recent activities`,
+          type: "link",
+        },
+        {
           id: "feedback",
           icon: "chatbubble-ellipses",
           title: "Send Feedback",
@@ -715,9 +849,25 @@ export default function ProfileScreen() {
         <View style={styles.profileHeader}>
           <View style={styles.avatarContainer}>
             <View style={styles.avatar}>
-              <Ionicons name="person" size={48} color={Colors.primary} />
+              {profilePhotoUrl ? (
+                <Image
+                  source={{ uri: profilePhotoUrl }}
+                  style={styles.avatarImage}
+                />
+              ) : (
+                <Ionicons name="person" size={48} color={Colors.primary} />
+              )}
+              {uploadingPhoto && (
+                <View style={styles.uploadingOverlay}>
+                  <ActivityIndicator size="small" color={Colors.textOnPrimary} />
+                </View>
+              )}
             </View>
-            <TouchableOpacity style={styles.editAvatarButton}>
+            <TouchableOpacity
+              style={styles.editAvatarButton}
+              onPress={handleChangeProfilePhoto}
+              disabled={uploadingPhoto}
+            >
               <Ionicons name="camera" size={16} color={Colors.textOnPrimary} />
             </TouchableOpacity>
           </View>
@@ -744,7 +894,7 @@ export default function ProfileScreen() {
             <Text style={styles.statLabel}>Trips</Text>
           </View>
           <View style={styles.statDivider} />
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.statItem}
             onPress={() => {
               if (user) {
@@ -759,7 +909,7 @@ export default function ProfileScreen() {
             <Text style={[styles.statLabel, { color: Colors.primary }]}>Tracking</Text>
           </TouchableOpacity>
           <View style={styles.statDivider} />
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.statItem}
             onPress={() => {
               if (user) {
@@ -782,7 +932,7 @@ export default function ProfileScreen() {
             <Text style={styles.sectionSubtitle}>
               Share this code with friends so they can track your location
             </Text>
-            
+
             <View style={styles.codeContainer}>
               {loadingCode ? (
                 <ActivityIndicator color={Colors.primary} />
@@ -1306,6 +1456,61 @@ export default function ProfileScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Activity Log Modal */}
+      <Modal
+        visible={showActivityLogModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowActivityLogModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: "80%" }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Activity Log</Text>
+              <TouchableOpacity onPress={() => setShowActivityLogModal(false)}>
+                <Ionicons name="close" size={24} color={Colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.modalSubtitle}>Recent app activities and events</Text>
+
+            {activityLogs.length === 0 ? (
+              <View style={styles.emptyLogContainer}>
+                <Ionicons name="document-text-outline" size={48} color={Colors.textLight} />
+                <Text style={styles.emptyLogText}>No activity logs yet</Text>
+                <Text style={styles.emptyLogSubtext}>Actions like SOS alerts, location updates, and profile changes will appear here</Text>
+              </View>
+            ) : (
+              <ScrollView style={styles.logsList} showsVerticalScrollIndicator={false}>
+                {activityLogs.map((log) => (
+                  <View key={log.id} style={styles.logItem}>
+                    <View style={[styles.logIcon, { backgroundColor: getLogColor(log.type) }]}>
+                      <Ionicons name={getLogIcon(log.type)} size={16} color="#FFF" />
+                    </View>
+                    <View style={styles.logContent}>
+                      <Text style={styles.logMessage}>{log.message}</Text>
+                      {log.details && (
+                        <Text style={styles.logDetails}>{JSON.stringify(log.details)}</Text>
+                      )}
+                      <Text style={styles.logTimestamp}>
+                        {new Date(log.timestamp).toLocaleString()}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+
+            {activityLogs.length > 0 && (
+              <TouchableOpacity style={styles.clearLogsButton} onPress={clearActivityLogs}>
+                <Ionicons name="trash-outline" size={18} color={Colors.error} />
+                <Text style={styles.clearLogsText}>Clear All Logs</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1327,6 +1532,7 @@ const getIconColor = (id) => {
     theme: "#9C27B0",
     // Research & Support
     usability_stats: "#009688",
+    activity_log: "#3F51B5",
     feedback: "#FF5722",
     help: "#607D8B",
     // About
@@ -1335,6 +1541,32 @@ const getIconColor = (id) => {
     terms: "#795548",
   };
   return colors[id] || Colors.primary;
+};
+
+// Helper function to get log type icon
+const getLogIcon = (type) => {
+  const icons = {
+    sos: "alert-circle",
+    location: "location",
+    profile: "person",
+    friend: "people",
+    system: "settings",
+    error: "warning",
+  };
+  return icons[type] || "information-circle";
+};
+
+// Helper function to get log type color
+const getLogColor = (type) => {
+  const colors = {
+    sos: "#F44336",
+    location: "#4CAF50",
+    profile: "#2196F3",
+    friend: "#9C27B0",
+    system: "#607D8B",
+    error: "#FF5722",
+  };
+  return colors[type] || Colors.primary;
 };
 
 const styles = StyleSheet.create({
@@ -1386,6 +1618,22 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: 2,
     borderColor: Colors.surface,
+  },
+  avatarImage: {
+    width: 94,
+    height: 94,
+    borderRadius: 47,
+  },
+  uploadingOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    borderRadius: 47,
+    alignItems: "center",
+    justifyContent: "center",
   },
   userName: {
     fontSize: 24,
@@ -1778,5 +2026,73 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 16,
     fontStyle: "italic",
+  },
+  // Activity Log styles
+  emptyLogContainer: {
+    alignItems: "center",
+    padding: 32,
+  },
+  emptyLogText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: Colors.text,
+    marginTop: 12,
+  },
+  emptyLogSubtext: {
+    fontSize: 13,
+    color: Colors.textLight,
+    textAlign: "center",
+    marginTop: 8,
+  },
+  logsList: {
+    maxHeight: 400,
+  },
+  logItem: {
+    flexDirection: "row",
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  logIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  logContent: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  logMessage: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: Colors.text,
+  },
+  logDetails: {
+    fontSize: 11,
+    color: Colors.textLight,
+    marginTop: 4,
+    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+  },
+  logTimestamp: {
+    fontSize: 11,
+    color: Colors.textLight,
+    marginTop: 4,
+  },
+  clearLogsButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    marginTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+  },
+  clearLogsText: {
+    fontSize: 14,
+    color: Colors.error,
+    marginLeft: 8,
+    fontWeight: "500",
   },
 });

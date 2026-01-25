@@ -91,11 +91,11 @@ export default function SafetyScreen() {
         user.id,
         (locations) => {
           console.log("[Safety] Friend locations received:", locations.length, "locations");
-          console.log("[Safety] Locations:", JSON.stringify(locations.map(l => ({ 
-            user_id: l.user_id, 
-            lat: l.latitude, 
+          console.log("[Safety] Locations:", JSON.stringify(locations.map(l => ({
+            user_id: l.user_id,
+            lat: l.latitude,
             lng: l.longitude,
-            shared_with: l.shared_with 
+            shared_with: l.shared_with
           })), null, 2));
           setFriendLocations(locations);
         },
@@ -208,15 +208,15 @@ export default function SafetyScreen() {
     .map((loc) => {
       // Find the friend profile that matches this location
       const friend = friends.find((f) => f.id === loc.user_id);
-      
+
       // Debug: log matching
       console.log(`[Safety] Matching location user_id: ${loc.user_id}, found friend:`, friend ? friend.display_name : "NOT FOUND");
-      
+
       if (!friend || !loc.latitude || !loc.longitude) {
         console.log(`[Safety] Skipping location - friend: ${!!friend}, lat: ${loc.latitude}, lng: ${loc.longitude}`);
         return null;
       }
-      
+
       // Calculate how long ago the location was updated
       const updatedAt = new Date(loc.updated_at);
       const now = new Date();
@@ -237,6 +237,7 @@ export default function SafetyScreen() {
         title: friend.display_name || friend.email?.split("@")[0] || "Friend",
         description: `Last seen: ${lastSeen}`,
         color: Colors.friendMarker,
+        photo_url: friend.photo_url || null, // Include profile photo for map marker
       };
     })
     .filter(Boolean); // Remove null entries
@@ -245,12 +246,12 @@ export default function SafetyScreen() {
   const friendsWithoutLocation = friends.filter(
     (f) => !friendMarkers.some((m) => m.id === f.id)
   );
-  
+
   console.log(`[Safety] Friends with location: ${friendMarkers.length}, without: ${friendsWithoutLocation.length}`);
-  
+
   // Use real friend markers (no mock fallback when user has real friends)
   const displayMarkers = friendMarkers;
-  
+
   // For UI: combine friends with location + friends waiting for location
   const allFriendsForUI = [
     ...friendMarkers.map((m) => ({ ...m, hasLocation: true })),
@@ -367,7 +368,7 @@ export default function SafetyScreen() {
                     ]}
                   />
                   <Text style={styles.friendStatus}>
-                    {friend.hasLocation 
+                    {friend.hasLocation
                       ? (friend.description?.replace("Last seen: ", "") || "Online")
                       : "Waiting..."}
                   </Text>
@@ -409,9 +410,11 @@ export default function SafetyScreen() {
           </Text>
           <SOSButton
             size={140}
-            onActivate={() => {
+            userId={user?.id}
+            userLocation={location}
+            onActivate={(result) => {
               setShowSOSPanel(false);
-              console.log("Emergency SOS triggered from Safety Screen");
+              console.log("Emergency SOS triggered from Safety Screen", result);
             }}
           />
         </View>

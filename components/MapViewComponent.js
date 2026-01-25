@@ -15,8 +15,8 @@ const MapViewComponent = ({
   userLocation = null,
   destination = null,
   showRoute = false,
-  onMarkerPress = () => {},
-  onRouteCalculated = () => {},
+  onMarkerPress = () => { },
+  onRouteCalculated = () => { },
   style,
 }) => {
   const webViewRef = useRef(null);
@@ -29,18 +29,33 @@ const MapViewComponent = ({
 
     const markersJS = markers
       .map(
-        (marker) => `
+        (marker) => {
+          // Generate marker icon HTML - show photo if available, otherwise initials/emoji
+          const photoUrl = marker.photoUrl || marker.photo_url;
+          const initials = marker.title ? marker.title.charAt(0).toUpperCase() : "👤";
+
+          let iconHtml;
+          if (photoUrl) {
+            // Use profile photo
+            iconHtml = `<div style="width: 40px; height: 40px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.4); overflow: hidden; background-color: ${marker.color || "#FF9800"};"><img src="${photoUrl}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.onerror=null;this.parentNode.innerHTML='<div style=\\'width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:white;font-weight:bold;font-size:16px;\\'>${initials}</div>'"/></div>`;
+          } else {
+            // Fallback to initials or emoji
+            iconHtml = `<div style="background-color: ${marker.color || "#FF9800"}; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 3px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.3);"><span style="color: white; font-size: 16px; font-weight: bold;">${initials}</span></div>`;
+          }
+
+          return `
         L.marker([${marker.latitude}, ${marker.longitude}], {
           icon: L.divIcon({
             className: 'custom-marker',
-            html: '<div style="background-color: ${marker.color || "#FF9800"}; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 3px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.3);"><span style="color: white; font-size: 14px;">👤</span></div>',
-            iconSize: [32, 32],
-            iconAnchor: [16, 16],
+            html: '${iconHtml.replace(/'/g, "\\'")}',
+            iconSize: [40, 40],
+            iconAnchor: [20, 20],
           })
         })
         .addTo(map)
-        .bindPopup('<b>${marker.title || "Marker"}</b><br>${marker.description || ""}');
-      `
+        .bindPopup('<b>${marker.title || "Friend"}</b><br>${marker.description || ""}');
+      `;
+        }
       )
       .join("\n");
 

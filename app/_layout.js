@@ -15,11 +15,16 @@ import {
 } from "@react-navigation/native";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useColorScheme } from "react-native";
+import { useColorScheme, LogBox } from "react-native";
 import { ClerkProvider } from "@clerk/clerk-expo";
 import Colors from "../constants/colors";
 import { clerkPublishableKey } from "../config/clerk";
 import "react-native-reanimated";
+
+// Suppress known library deprecation warnings
+LogBox.ignoreLogs([
+  "props.pointerEvents is deprecated",
+]);
 
 // Custom OLFU theme
 const OLFULightTheme = {
